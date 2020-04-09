@@ -1,5 +1,5 @@
 # parserClang
-A small C parser to extract functions from C/Cpp source files.
+A very basic C parser to extract functions from C/Cpp source files. This is a prototype (no solid error handling, modular code, etc).
 
 ## Installation
 
