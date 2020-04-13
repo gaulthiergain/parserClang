@@ -9,7 +9,7 @@
 #
 # (*) Run:
 #
-# python3 parserClang.py <filepath>
+# python3 parserClang.py <filepath> [includepathsfile]
 # 
 # where filepath can be a repository/folder or a file (c/cpp/h/hpp)
 #
@@ -31,29 +31,44 @@ global_funcs = Counter()
 global_calls = Counter()
 
 # Check if a path is a directory or a file
-def check_input_path(path):
+def check_input_path(path, includePaths):
     if os.path.isdir(path):  
-        iterate_root_folder(path)
+        iterate_root_folder(path, includePaths)
     elif os.path.isfile(path):  
-        check_type_file(path)
+        check_type_file(path, includePaths)
     else:
         print("Unable to analyse this file")
 
+def get_include_paths(rootdir, includepathsFile):
+    paths = []
+    with open(includepathsFile, 'r') as file:
+        for includePath in file.readlines():
+            path = '-isystem ' + rootdir + includePath.replace('\n', '')
+            paths.append(path)
+
+    return ' '.join(paths)
+
 # Check type/exenstion of a given file
-def check_type_file(filepath):
+def check_type_file(filepath, includePaths):
+    cplusplusOptions = '-x c++ --std=c++11'
+    cOptions = ''
+
+    if includePaths is not None:
+        cplusplusOptions = cplusplusOptions + ' ' + includePaths
+        cOptions = cOptions + ' ' + includePaths
+
+    print("Gathering symbols of " + filepath)
     if filepath.endswith(".cpp") or filepath.endswith(".hpp"):
-        print("Gathering symbols of " + filepath) 
-        parse_file(filepath, '-x c++ --std=c++11')
+        parse_file(filepath, cplusplusOptions)
     elif filepath.endswith(".c") or filepath.endswith(".h"):
-        print("Gathering symbols of " + filepath) 
-        parse_file(filepath, '')
+        parse_file(filepath, cOptions)
 
 # Iterate through a root folder
-def iterate_root_folder(rootdir):
+def iterate_root_folder(rootdir, includePaths):
     for subdir, dirs, files in os.walk(rootdir):
         for file in files:
             filepath = subdir + os.sep + file
-            check_type_file(filepath)
+            check_type_file(filepath, includePaths)
 
 # Print info about symbols (verbose mode)
 def display_info_function(funcs, calls):
@@ -74,6 +89,8 @@ def parse_file(filepath, arguments):
     funcs, calls = find_funcs_and_calls(tu)
     if verbose:
         display_info_function(funcs, calls)
+        print(list(tu.diagnostics))
+
         
 # Retrieve a fully qualified function name (with namespaces)
 def fully_qualified(c):
@@ -156,14 +173,23 @@ def compare_syscalls(syscalls):
 
 # Main function
 def main():
-
-    if len(sys.argv) > 1:
+    includepathsFile = None
+    if len(sys.argv) == 2:
         filepath = sys.argv[1]
+        print("Warning: Not all syscalls will be registered. You need to provide a file with include paths.")
+    elif len(sys.argv) == 3:
+        filepath = sys.argv[1]
+        includepathsFile = sys.argv[2]
     else:
-        print("Filename must be specified: python3 parserClang.py <filepath>")
+        print("Filename must be specified: python3 parserClang.py <filepath> [includepathsFile]")
         exit(1)
 
-    check_input_path(filepath)
+    if includepathsFile is not None:
+        includePaths = get_include_paths(filepath, includepathsFile)
+        print(includePaths)
+        check_input_path(filepath, includePaths)
+    else:
+        check_input_path(filepath, None)
 
     print("---------------------------------------------------------")
 
