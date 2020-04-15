@@ -1,0 +1,12 @@
+/include
+/event
+/event/modules
+/http
+/http/modules
+/http/modules/perl
+/http/v2
+/mail
+/os/unix
+/stream
+/src/core/
+/src/os/unix/
