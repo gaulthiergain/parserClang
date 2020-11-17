@@ -14,7 +14,7 @@ sudo ln -s libclang-X.Y.so.1 libclang.so (X.Y the version number)
 ## Run
 
 ```
-python3 parserClang.py <filepath>
+python3 parserClang.py [-i includePaths] [-o outputfile] -[qv] inputfile.c [otherinputfile.c ...]
 ```
 
 where filepath can be a repository/folder or a file (c/cpp/h/hpp)
