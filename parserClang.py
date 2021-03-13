@@ -4,8 +4,12 @@
 #
 # pip3 install clang
 #
-# cd /usr/lib/x86_64-linux-gnu/
-# sudo ln -s libclang-X.Y.so.1 libclang.so (X.Y the version number)
+# On Linux:
+#   cd /usr/lib/x86_64-linux-gnu/
+#   sudo ln -s libclang-X.Y.so.1 libclang.so (X.Y the version number)
+# 
+# On Mac:
+#   The clang library is by default set by the MAC_CLANG variable
 #
 # (*) Run:
 #
@@ -23,8 +27,12 @@ import os
 import sys
 import json
 import clang.cindex
+import clang
+import platform
 from clang.cindex import CursorKind
 from collections import Counter
+
+MAC_CLANG = "/Applications/Xcode.app/Contents/Frameworks/libclang.dylib"
 
 verbose = False # Change it to verbose mode
 
@@ -76,7 +84,6 @@ def iterate_root_folder(rootdir, includePaths):
 
 # Print info about symbols (verbose mode)
 def display_info_function(funcs, calls):
-    print("------------------------------------------------------")
     for f in funcs:
         print(fully_qualified(f), f.location)
         for c in calls:
@@ -175,10 +182,11 @@ def compare_syscalls(syscalls):
 
 # Main function
 def main():
-    optlist, args = getopt.getopt(sys.argv[1:], "o:qv")
+    optlist, args = getopt.getopt(sys.argv[1:], "o:qvt")
     input_file_names = None
     includepathsFile = None
     output_file_name = None
+    textFormat = False
     for opt in optlist:
         if opt[0] == "-i":
             includepathFile = opt[1]
@@ -190,6 +198,9 @@ def main():
         if opt[0] == "-v":
             global verbose
             verbose = True
+        if opt[0] == "-t":
+            textFormat = True
+
     input_file_names = args
     if len(input_file_names) == 0:
         if silent_flag is False:
@@ -206,25 +217,35 @@ def main():
     if silent_flag is False:
         print("---------------------------------------------------------")
 
-    # Dump function declarations and calls to json
-    output_dikt = {
-        'functions':'',
-        'calls':''
-    }
-    output_dikt['functions'] = [{'name':key, 'value':value} for key,value in global_funcs.items()]
-    output_dikt['calls'] = [{'name':key, 'value':value} for key,value in global_calls.items()]
-    if includepathsFile is not None:
-        # Read syscalls from txt file
-        all_syscalls = read_syscalls_list('syscall_list.txt')
-        called_syscalls = compare_syscalls(all_syscalls)
-        output_dikt['syscalls'] = called_syscalls
-    if output_file_name is None:
-        output_file = sys.stdout
+    if textFormat:
+        i = 0
+        for key,value in global_funcs.items():
+            if i < len(global_funcs.items())-1:
+                print(key, end=',')
+            else:
+                print(key)
+            i = i + 1
     else:
-        output_file = open(output_file_name, "w")
-    json.dump(output_dikt, output_file)
+        # Dump function declarations and calls to json
+        output_dikt = {
+            'functions':'',
+            'calls':''
+        }
+        output_dikt['functions'] = [{'name':key, 'value':value} for key,value in global_funcs.items()]
+        output_dikt['calls'] = [{'name':key, 'value':value} for key,value in global_calls.items()]
+        if includepathsFile is not None:
+            # Read syscalls from txt file
+            all_syscalls = read_syscalls_list('syscall_list.txt')
+            called_syscalls = compare_syscalls(all_syscalls)
+            output_dikt['syscalls'] = called_syscalls
+        if output_file_name is None:
+            output_file = sys.stdout
+        else:
+            output_file = open(output_file_name, "w")
+        json.dump(output_dikt, output_file)
 
 
 if __name__== "__main__":
-
+    if platform.system() == "Darwin":
+        clang.cindex.Config.set_library_file(MAC_CLANG)
     main()
