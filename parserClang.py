@@ -28,18 +28,18 @@ import sys
 import json
 import clang.cindex
 import clang
+import argparse
 import platform
 from clang.cindex import CursorKind
-from collections import Counter
+from collections import defaultdict
 
 MAC_CLANG = "/Applications/Xcode.app/Contents/Frameworks/libclang.dylib"
 
 verbose = False # Change it to verbose mode
+silent = False #
 
-global_funcs = Counter()
-global_calls = Counter()
-
-silent_flag = False
+global_funcs = defaultdict(list)
+global_calls = defaultdict(list)
 
 # Check if a path is a directory or a file
 def check_input_path(path, includePaths):
@@ -48,8 +48,7 @@ def check_input_path(path, includePaths):
     elif os.path.isfile(path):
         check_type_file(path, includePaths)
     else:
-        print("Unable to analyse this file")
-        exit(1)
+        sys.stderr("[WARNING] Unable to analyse this file: " + path)
 
 def get_include_paths(rootdir, includepathsFile):
     paths = []
@@ -60,7 +59,7 @@ def get_include_paths(rootdir, includepathsFile):
 
     return ' '.join(paths)
 
-# Check type/exenstion of a given file
+# Check type/extension of a given file
 def check_type_file(filepath, includePaths):
     cplusplusOptions = '-x c++ --std=c++11'
     cOptions = ''
@@ -68,11 +67,12 @@ def check_type_file(filepath, includePaths):
     if includePaths is not None:
         cplusplusOptions = cplusplusOptions + ' ' + includePaths
         cOptions = cOptions + ' ' + includePaths
-    if silent_flag is False:
+    if not silent:
         print("Gathering symbols of " + filepath)
-    if filepath.endswith(".cpp") or filepath.endswith(".hpp"):
+    
+    if filepath.endswith(".cpp") or filepath.endswith(".hpp") or filepath.endswith(".cc"):
         parse_file(filepath, cplusplusOptions)
-    elif filepath.endswith(".c") or filepath.endswith(".h"):
+    elif filepath.endswith(".c") or filepath.endswith(".h") or filepath.endswith(".hh"):
         parse_file(filepath, cOptions)
 
 # Iterate through a root folder
@@ -124,10 +124,8 @@ def is_function_call(funcdecl, c):
 # Filter name to take only the function name (remove "(args)")
 def filter_func_name(displayname):
     if "(" in displayname:
-        funcName = displayname.split('(')[0]
-    else:
-        funcName = displayname
-    return funcName
+        return displayname.split('(')[0]
+    return displayname
 
 # Retrieve lists of function declarations and call expressions in a
 #translation unit
@@ -144,13 +142,44 @@ def find_funcs_and_calls(tu):
             calls.append(c)
             # filter name to take only the name if necessary
             funcName = filter_func_name(c.displayname)
-            global_calls[funcName] += 1
+            
+            #increment counter
+            if funcName not in global_calls:
+                global_calls[funcName].append(1)
+            else:
+                global_calls[funcName][0] +=1
+
+            #add path to file
+            if c.location.file.name not in global_calls[funcName]:
+                global_calls[funcName].append(c.location.file.name)
+
         elif c.kind == CursorKind.FUNCTION_DECL:
             funcs.append(c)
             # filter name to take only the name if necessary
             funcName = filter_func_name(c.displayname)
-            global_funcs[funcName] += 1
+            
+            #increment counter
+            if funcName not in global_funcs:
+                global_funcs[funcName].append(1)
+            else:
+                global_funcs[funcName][0] +=1
+
+            #add path to file
+            if c.location.file.name not in global_funcs[funcName]:
+                global_funcs[funcName].append(c.location.file.name)
+
     return funcs, calls
+
+# str2bool is used for boolean arguments parsing.
+def str2bool(v):
+    if isinstance(v, bool):
+       return v
+    if v.lower() in ('yes', 'true', 't', 'y', '1'):
+        return True
+    elif v.lower() in ('no', 'false', 'f', 'n', '0'):
+        return False
+    else:
+        raise argparse.ArgumentTypeError('Boolean value expected.')
 
 # Write data to json file
 def write_to_json(output_filename, data):
@@ -163,86 +192,88 @@ def read_from_json(filename):
         data = json.load(fp)
     return data
 
-# Read the list of syscalls (text file)
+# Read the list of syscalls (json file)
 def read_syscalls_list(filename):
-    syscalls = set()
     with open(filename) as f:
-        for line in f:
-            syscalls.add(line.strip())
-    return syscalls
+        return json.load(f)
 
-# Check which syscall is called
+
+# Check which syscall is a function
 def compare_syscalls(syscalls):
-    if silent_flag is False:
-        print("Gathered syscalls from function calls:")
+    if not silent:
+        print("Gathered syscalls from function calls")
 
-    return [key for key in global_calls.keys() if key not in syscalls]
+    called_syscalls = defaultdict(list)
+    define_syscalls = defaultdict(list)
 
+    for key, value in global_calls.items():
+        if key in syscalls:
+            if verbose:
+                print(key, end=", ");
+                print(global_calls[key])
+            called_syscalls[key] = value
 
+    for key, value in global_funcs.items():
+        if key in syscalls:
+            if verbose:
+                print(key, end=", ");
+                print(global_funcs[key])
+            define_syscalls[key] = value
+    
+    return (called_syscalls, define_syscalls)
 
-# Main function
 def main():
-    optlist, args = getopt.getopt(sys.argv[1:], "o:qvt")
-    input_file_names = None
-    includepathsFile = None
-    output_file_name = None
-    textFormat = False
-    for opt in optlist:
-        if opt[0] == "-i":
-            includepathFile = opt[1]
-        if opt[0] == "-o":
-            output_file_name = opt[1]
-        if opt[0] == "-q":
-            global silent_flag
-            silent_flag = True
-        if opt[0] == "-v":
-            global verbose
-            verbose = True
-        if opt[0] == "-t":
-            textFormat = True
+    global silent, verbose
 
-    input_file_names = args
-    if len(input_file_names) == 0:
-        if silent_flag is False:
-            print("No input files supplied")
-        exit(1)
-    if includepathsFile is not None:
-        includePaths = get_include_paths(input_file_name, includepathsFile)
-        for input_file_name in input_file_names:
-            check_input_path(input_file_name, includePaths)
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument('--folder','-f', help='Path to the folder to analyse', required=True)
+    parser.add_argument('--include','-i', help='Path to the includepathsFile')
+    parser.add_argument('--output', '-o', help='Path to the output resulting json file', default="out.json")
+    parser.add_argument('--syscalls','-s', help='Path to the syscalls file', default="syscalls.json")
+    parser.add_argument('--verbose', '-v', type=str2bool, 
+                        nargs='?', const=True, default=False,
+                        help='Verbose mode')
+    parser.add_argument('--silent', type=str2bool, 
+                        nargs='?', const=True, default=False,
+                        help='Display command (default=False)')
+    args = parser.parse_args()
+
+    verbose = args.verbose
+    silent = args.silent
+
+    if args.include is not None:
+        includePaths = get_include_paths(args.folder, args.include)
+        print(includePaths)
+        check_input_path(args.folder, includePaths)
     else:
-        for input_file_name in input_file_names:
-            check_input_path(input_file_name, None)
+        check_input_path(args.folder, None)
 
-    if silent_flag is False:
+    if not silent:
         print("---------------------------------------------------------")
 
-    if textFormat:
-        i = 0
-        for key,value in global_funcs.items():
-            if i < len(global_funcs.items())-1:
-                print(key, end=',')
-            else:
-                print(key)
-            i = i + 1
-    else:
-        # Dump function declarations and calls to json
-        output_dikt = {
+    output_dict = {
             'functions':'',
-            'calls':''
+            'calls':'',
+            'called_syscalls':'',
+            'define_syscalls':'',
         }
-        output_dikt['functions'] = [{'name':key, 'value':value} for key,value in global_funcs.items()]
-        output_dikt['calls'] = [{'name':key, 'value':value} for key,value in global_calls.items()]
-        if includepathsFile is not None:
-            # Read syscalls from txt file
-            all_syscalls = read_syscalls_list('syscall_list.txt')
-            called_syscalls = compare_syscalls(all_syscalls)
-            output_dikt['syscalls'] = called_syscalls
-        if output_file_name is None:
-            output_file = sys.stdout
-        else:
-            output_file = open(output_file_name, "w")
-        json.dump(output_dikt, output_file)
+    #output_dict['functions'] = [{'name':key, 'value':value} for key,value in global_funcs.items()]
+    #output_dict['calls'] = [{'name':key, 'value':value} for key,value in global_calls.items()]
+
+    # Read syscalls from txt file
+    syscalls = read_syscalls_list('syscalls.json')
+    # Compare syscalls list with function declarations/calls
+    (called_syscalls, define_syscalls) = compare_syscalls(syscalls)
+    output_dict['called_syscalls'] = called_syscalls
+    output_dict['define_syscalls'] = define_syscalls
+        
+    if args.output is None:
+        output_file = sys.stdout
+    else:
+        output_file = open(args.output, "w")
+        
+    json.dump(output_dict, output_file, sort_keys=True, indent=4)
 
 
 if __name__== "__main__":
