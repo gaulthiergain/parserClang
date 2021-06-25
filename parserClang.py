@@ -258,11 +258,11 @@ def main():
             'called_syscalls':'',
             'define_syscalls':'',
         }
-    #output_dict['functions'] = [{'name':key, 'value':value} for key,value in global_funcs.items()]
-    #output_dict['calls'] = [{'name':key, 'value':value} for key,value in global_calls.items()]
+    output_dict['functions'] = [{'name':key, 'value':value} for key,value in global_funcs.items()]
+    output_dict['calls'] = [{'name':key, 'value':value} for key,value in global_calls.items()]
 
     # Read syscalls from txt file
-    syscalls = read_syscalls_list('syscalls.json')
+    syscalls = read_syscalls_list(args.syscalls)
     # Compare syscalls list with function declarations/calls
     (called_syscalls, define_syscalls) = compare_syscalls(syscalls)
     output_dict['called_syscalls'] = called_syscalls
